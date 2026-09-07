@@ -1,29 +1,20 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import SmoothScroll from "@/components/SmoothScroll";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Local File Transfer",
-  description: "High-speed P2P local network file sharing",
+  title: "Fluid | Minimal File Transfer",
+  description: "Seamless local network transfers.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      {/* Setting the default dark background and text colors to match the UI theme */}
-      <body className={`${inter.className} bg-[#1e2029] text-gray-100 antialiased min-h-screen`}>
-        <SmoothScroll>
-          <main className="max-w-7xl mx-auto p-6 md:p-12">
-            {children}
-          </main>
-        </SmoothScroll>
+    <html lang="en">
+      {/* Eye-soothing pastel gradient background: Soft Peach to Pale Mint/Lavender */}
+      <body className={`${inter.className} bg-gradient-to-br from-[#fff0f0] via-[#f3f4fb] to-[#e8fbf6] text-gray-800 antialiased min-h-screen flex items-center justify-center p-4`}>
+        {children}
       </body>
     </html>
   );
