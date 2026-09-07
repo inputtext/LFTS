@@ -12,8 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      {/* Eye-soothing pastel gradient background: Soft Peach to Pale Mint/Lavender */}
-      <body className={`${inter.className} bg-gradient-to-br from-[#fff0f0] via-[#f3f4fb] to-[#e8fbf6] text-gray-800 antialiased min-h-screen flex items-center justify-center p-4`}>
+      <body className={`${inter.className} bg-[#fafafa] text-gray-800 antialiased min-h-screen w-full overflow-x-hidden`}>
         {children}
       </body>
     </html>
