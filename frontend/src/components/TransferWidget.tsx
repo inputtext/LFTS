@@ -27,33 +27,36 @@ export default function TransferWidget() {
   };
 
   return (
-    <div className="w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318]">
+    <div className="group/console relative w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318] transition-[box-shadow,transform] duration-500 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[14px_14px_0_#111318]">
       <div className="flex items-stretch justify-between border-b border-black">
         <div className="px-5 py-4"><p className="font-mono-fluid text-[10px] font-semibold uppercase tracking-[0.12em]">Transfer console</p><p className="mt-1 text-xs text-black/45">Direct peer connection</p></div>
-        <div className="flex items-center border-l border-black px-4 font-mono-fluid text-[9px] uppercase tracking-[0.12em]"><span className="mr-2 h-2 w-2 rounded-full bg-[#9dcc00]" /> Ready</div>
+        <div className="flex items-center border-l border-black px-4 font-mono-fluid text-[9px] uppercase tracking-[0.12em]"><span className="relative mr-2 flex h-2 w-2"><span className="absolute inset-0 animate-ping bg-[#9dcc00] opacity-50" /><span className="relative h-2 w-2 bg-[#9dcc00]" /></span> Ready</div>
       </div>
 
       <div className="p-5">
         <input ref={inputRef} type="file" multiple className="hidden" onChange={(event) => { if (event.target.files) addFiles(event.target.files); event.target.value = ""; }} />
-        <button type="button" className={`group/drop relative flex min-h-[285px] w-full flex-col items-center justify-center border border-black/25 bg-white text-center transition-colors ${dragging ? "bg-[#e9ff72]" : "hover:bg-[#eeeee8]"}`} onClick={() => inputRef.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
+        <button type="button" className={`group/drop relative flex min-h-[285px] w-full flex-col items-center justify-center overflow-hidden border border-black/25 bg-white text-center transition-all duration-300 ${dragging ? "scale-[0.985] border-black bg-[#e9ff72]" : "hover:bg-[#eeeee8]"}`} onClick={() => inputRef.current?.click()} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); addFiles(event.dataTransfer.files); }}>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 opacity-0 transition-opacity duration-500 group-hover/drop:opacity-100" style={{ background: "linear-gradient(to bottom, rgba(216,255,69,.12), transparent)" }} />
           <span className="absolute left-3 top-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/30">INPUT / FILE</span>
-          <span className="mb-5 flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed] transition-transform group-hover/drop:-translate-y-1"><FileDown className="h-7 w-7" strokeWidth={1.4} /></span>
+          <span className="absolute right-3 top-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/25">01 — READY</span>
+          <span className="mb-5 flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed] transition-all duration-300 group-hover/drop:-translate-y-1 group-hover/drop:bg-[#d8ff45] group-hover/drop:shadow-[4px_4px_0_#111318]"><FileDown className="h-7 w-7" strokeWidth={1.4} /></span>
           <span className="text-lg font-semibold tracking-tight">Drop files here</span>
           <span className="mt-2 font-mono-fluid text-[9px] uppercase tracking-[0.1em] text-black/40">or click to browse</span>
           <span className="absolute bottom-3 left-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/25">MAX 500 MB</span>
           <span className="absolute bottom-3 right-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/25">P2P / LOCAL</span>
+          <span className="pointer-events-none absolute bottom-0 left-0 h-px w-full origin-left scale-x-0 bg-[#d8ff45] transition-transform duration-500 group-hover/drop:scale-x-100" />
         </button>
 
         {selected.length > 0 && <div className="mt-4 border-t border-black/10 pt-3">
-          {selected.map((item, index) => <div key={`${item.name}-${index}`} className="flex items-center justify-between border-b border-black/10 py-3">
+          {selected.map((item, index) => <div key={`${item.name}-${index}`} className="flex items-center justify-between border-b border-black/10 py-3 transition-colors hover:bg-black/[0.025]">
             <div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center border border-black/10 bg-white"><FileIcon file={item.file} /></span><div className="min-w-0 text-left"><p className="truncate text-xs font-semibold">{item.name}</p><p className="mt-0.5 font-mono-fluid text-[9px] text-black/40">{item.size}</p></div></div>
             <button type="button" aria-label={`Remove ${item.name}`} className="ml-3 p-1 text-black/30 transition hover:text-red-600" onClick={() => setSelected((current) => current.filter((_, i) => i !== index))}><X className="h-4 w-4" /></button>
           </div>)}
-          <button type="button" className="mt-4 w-full border border-black bg-[#111318] px-4 py-3 text-left font-mono-fluid text-[10px] uppercase tracking-[0.12em] text-[#f3f2ed] transition hover:bg-[#e9ff72] hover:text-[#111318]">Connect device <span className="float-right">↗</span></button>
+          <button type="button" className="mt-4 w-full border border-black bg-[#111318] px-4 py-3 text-left font-mono-fluid text-[10px] uppercase tracking-[0.12em] text-[#f3f2ed] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#d8ff45] hover:text-[#111318] hover:shadow-[4px_4px_0_#111318]">Connect device <span className="float-right">↗</span></button>
         </div>}
       </div>
 
-      <div className="grid grid-cols-3 border-t border-black font-mono-fluid text-[8px] uppercase tracking-[0.1em] text-black/40"><span className="border-r border-black px-4 py-3">No uploads</span><span className="border-r border-black px-4 py-3">No account</span><span className="px-4 py-3">Direct transfer</span></div>
+      <div className="grid grid-cols-3 border-t border-black font-mono-fluid text-[8px] uppercase tracking-[0.1em] text-black/40"><span className="border-r border-black px-4 py-3 transition-colors group-hover/console:text-black/65">No uploads</span><span className="border-r border-black px-4 py-3 transition-colors group-hover/console:text-black/65">No account</span><span className="px-4 py-3 transition-colors group-hover/console:text-black/65">Direct transfer</span></div>
     </div>
   );
 }
