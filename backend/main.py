@@ -9,8 +9,6 @@ from .manager import manager
 
 app = FastAPI(title="Fluid Signaling Server", version="0.1.0")
 
-# Development CORS. WebRTC media/data still flows peer-to-peer; this only
-# controls which browser origins may talk to the HTTP/WebSocket server.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,25 +27,21 @@ async def health() -> dict[str, Any]:
     }
 
 
-def public_peer(peer: Any) -> dict[str, str]:
+def public_peer(peer: Any) -> dict[str, str | None]:
     return {
         "peer_id": peer.peer_id,
         "device_name": peer.device_name,
         "device_type": peer.device_type,
         "browser": peer.browser,
+        "mode": peer.mode,
     }
 
 
 async def broadcast_peers() -> None:
     peers = [public_peer(peer) for peer in manager.peers.values()]
     for peer in list(manager.peers.values()):
-        await manager.send(
-            peer.peer_id,
-            {
-                "type": "peers",
-                "peers": [item for item in peers if item["peer_id"] != peer.peer_id],
-            },
-        )
+        visible = [item for item in peers if item["peer_id"] != peer.peer_id and item["mode"] is not None]
+        await manager.send(peer.peer_id, {"type": "peers", "peers": visible})
 
 
 async def handle_message(peer_id: str, message: dict[str, Any]) -> None:
@@ -56,11 +50,16 @@ async def handle_message(peer_id: str, message: dict[str, Any]) -> None:
     if message_type == "hello":
         await manager.send(
             peer_id,
-            {
-                "type": "registered",
-                "peer": public_peer(manager.peers[peer_id]),
-            },
+            {"type": "registered", "peer": public_peer(manager.peers[peer_id])},
         )
+        await broadcast_peers()
+        return
+
+    if message_type == "set_mode":
+        requested = message.get("mode")
+        mode = requested if requested in {"send", "receive"} else None
+        await manager.set_mode(peer_id, mode)
+        await manager.send(peer_id, {"type": "mode_set", "mode": mode})
         await broadcast_peers()
         return
 
@@ -69,24 +68,38 @@ async def handle_message(peer_id: str, message: dict[str, Any]) -> None:
             peer_id,
             {
                 "type": "peers",
-                "peers": [public_peer(peer) for peer in manager.list_peers(exclude=peer_id)],
+                "peers": [
+                    public_peer(peer)
+                    for peer in manager.list_peers(exclude=peer_id)
+                    if peer.mode is not None
+                ],
             },
         )
         return
 
     if message_type == "transfer_create":
+        sender = manager.peers.get(peer_id)
+        if sender is None or sender.mode != "send":
+            await manager.send(peer_id, {"type": "error", "code": "SENDER_MODE_REQUIRED"})
+            return
+
+        receiver_id = message.get("receiver_id")
+        receiver = manager.peers.get(receiver_id) if isinstance(receiver_id, str) else None
+        if receiver is None or receiver.mode != "receive":
+            await manager.send(peer_id, {"type": "error", "code": "RECEIVER_NOT_READY"})
+            return
+
         session = await manager.create_session(
             peer_id,
-            receiver_id=message.get("receiver_id"),
+            receiver_id=receiver_id,
             file_name=message.get("file_name"),
             file_size=message.get("file_size"),
         )
         await manager.send(peer_id, {"type": "transfer_created", "session": session.metadata()})
-        if session.receiver_id:
-            await manager.send(
-                session.receiver_id,
-                {"type": "transfer_invite", "session": session.metadata()},
-            )
+        await manager.send(
+            receiver_id,
+            {"type": "transfer_invite", "session": session.metadata()},
+        )
         return
 
     if message_type == "transfer_accept":
@@ -94,6 +107,10 @@ async def handle_message(peer_id: str, message: dict[str, Any]) -> None:
         session = manager.get_session(session_id)
         if session is None:
             await manager.send(peer_id, {"type": "error", "code": "SESSION_NOT_FOUND"})
+            return
+        receiver = manager.peers.get(peer_id)
+        if receiver is None or receiver.mode != "receive":
+            await manager.send(peer_id, {"type": "error", "code": "RECEIVER_MODE_REQUIRED"})
             return
         if session.receiver_id not in (None, peer_id):
             await manager.send(peer_id, {"type": "error", "code": "SESSION_ALREADY_ASSIGNED"})
@@ -105,7 +122,6 @@ async def handle_message(peer_id: str, message: dict[str, Any]) -> None:
         await manager.send(session.sender_id, {"type": "transfer_accepted", "session": session.metadata()})
         return
 
-    # WebRTC signaling messages are forwarded untouched to the intended peer.
     if message_type in {"offer", "answer", "ice_candidate"}:
         target_peer_id = message.get("target_peer_id")
         if not isinstance(target_peer_id, str):
