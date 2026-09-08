@@ -1,31 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import {
-  ArrowRight,
-  Check,
-  FileDown,
-  FileText,
-  Image as ImageIcon,
-  Monitor,
-  Smartphone,
-  Tablet,
-  Wifi,
-  X,
-} from "lucide-react";
-import { FluidWebRTC, type PeerInfo, type TransferMeta } from "@/lib/webrtc";
+import { ArrowRight, Check, FileDown, FileText, Monitor, Smartphone, Tablet, Wifi, X } from "lucide-react";
+import { FluidWebRTC, type PeerInfo, type TransferMeta, type TransferMode } from "@/lib/webrtc";
 
 type SelectedFile = { file: File; name: string; size: string };
-type Stage =
-  | "ready"
-  | "selected"
-  | "searching"
-  | "devices"
-  | "connecting"
-  | "transferring"
-  | "complete"
-  | "error";
+type Stage = "role" | "send-file" | "waiting" | "devices" | "connecting" | "transferring" | "complete" | "error";
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -35,32 +15,28 @@ function formatSize(bytes: number) {
 }
 
 function iconFor(type: string) {
-  if (type === "phone") return <Smartphone className="h-4 w-4" strokeWidth={1.5} />;
-  if (type === "tablet") return <Tablet className="h-4 w-4" strokeWidth={1.5} />;
-  return <Monitor className="h-4 w-4" strokeWidth={1.5} />;
+  if (type === "phone") return <Smartphone className="h-5 w-5" strokeWidth={1.5} />;
+  if (type === "tablet") return <Tablet className="h-5 w-5" strokeWidth={1.5} />;
+  return <Monitor className="h-5 w-5" strokeWidth={1.5} />;
 }
 
 export default function TransferWidget() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const packetsRef = useRef<HTMLDivElement>(null);
   const rtcRef = useRef<FluidWebRTC | null>(null);
   const selectedRef = useRef<SelectedFile[]>([]);
   const peersRef = useRef<PeerInfo[]>([]);
-  const stageRef = useRef<Stage>("ready");
-  const searchTimerRef = useRef<number | null>(null);
+  const stageRef = useRef<Stage>("role");
 
+  const [mode, setMode] = useState<TransferMode | null>(null);
   const [selected, setSelected] = useState<SelectedFile[]>([]);
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [device, setDevice] = useState<PeerInfo | null>(null);
   const [incoming, setIncoming] = useState<TransferMeta | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [stage, setStageState] = useState<Stage>("ready");
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState("");
-  const [signalingError, setSignalingError] = useState("");
+  const [stage, setStageState] = useState<Stage>("role");
   const [online, setOnline] = useState(false);
-  const [pointer, setPointer] = useState({ x: 50, y: 50 });
+  const [signalingError, setSignalingError] = useState("");
+  const [error, setError] = useState("");
+  const [progress, setProgress] = useState(0);
 
   const setStage = (next: Stage) => {
     stageRef.current = next;
@@ -72,29 +48,29 @@ export default function TransferWidget() {
       peers: (nextPeers) => {
         peersRef.current = nextPeers;
         setPeers(nextPeers);
-        setOnline(true);
         setSignalingError("");
+      },
+      modeSet: (nextMode) => {
+        setMode(nextMode);
       },
       incoming: (session) => {
         setIncoming(session);
+        setStage("connecting");
       },
       connected: (peerId) => {
         const peer = peersRef.current.find((item) => item.peer_id === peerId);
         if (peer) setDevice(peer);
         setError("");
         setStage("transferring");
-
         const file = selectedRef.current[0]?.file;
-        if (file) {
+        if (file && mode === "send") {
           void rtc.sendFile(peerId, file).catch((e: unknown) => {
             setError(e instanceof Error ? e.message : "File transfer failed.");
             setStage("error");
           });
         }
       },
-      progress: (sent, total) => {
-        setProgress(total ? Math.round((sent / total) * 100) : 0);
-      },
+      progress: (sent, total) => setProgress(total ? Math.round((sent / total) * 100) : 0),
       received: (file) => {
         const url = URL.createObjectURL(file);
         const anchor = document.createElement("a");
@@ -105,7 +81,6 @@ export default function TransferWidget() {
         anchor.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         setProgress(100);
-        setError("");
         setStage("complete");
       },
       error: (message) => {
@@ -114,98 +89,48 @@ export default function TransferWidget() {
           setSignalingError(message);
           return;
         }
-
         if (["connecting", "transferring"].includes(stageRef.current)) {
           setError(message);
           setStage("error");
         }
       },
     });
-
     rtcRef.current = rtc;
     rtc.connect();
-
     return () => {
-      if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
       rtc.close();
       rtcRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (panelRef.current) {
-      gsap.fromTo(
-        panelRef.current,
-        { scale: 0.985, opacity: 0.55 },
-        { scale: 1, opacity: 1, duration: 0.32, ease: "power2.out" },
-      );
-    }
-  }, [stage]);
+    const compatible = mode === "send" ? peers.some((peer) => peer.mode === "receive") : mode === "receive" ? peers.some((peer) => peer.mode === "send") : false;
+    setOnline(compatible);
+  }, [mode, peers]);
 
-  useEffect(() => {
-    if (stage !== "transferring" || !packetsRef.current) return;
-    const packets = gsap.utils.toArray<HTMLElement>(
-      ".transfer-packet",
-      packetsRef.current,
-    );
-    const animation = gsap.fromTo(
-      packets,
-      { x: -20, opacity: 0 },
-      {
-        x: 125,
-        opacity: 1,
-        duration: 0.85,
-        stagger: 0.16,
-        repeat: -1,
-        ease: "none",
-      },
-    );
-    return () => animation.kill();
-  }, [stage]);
+  const chooseMode = (nextMode: TransferMode) => {
+    setMode(nextMode);
+    setError("");
+    setIncoming(null);
+    rtcRef.current?.setMode(nextMode);
+    setStage(nextMode === "send" ? "send-file" : "waiting");
+  };
 
-  const addFiles = (files: FileList | File[]) => {
-    const incomingFiles = Array.from(files).map((file) => ({
-      file,
-      name: file.name,
-      size: formatSize(file.size),
-    }));
-
-    if (!incomingFiles.length) return;
-
-    const next = incomingFiles.slice(0, 5);
+  const addFile = (file: File) => {
+    const next = [{ file, name: file.name, size: formatSize(file.size) }];
     selectedRef.current = next;
     setSelected(next);
-    setStage("selected");
     setError("");
+    setStage("devices");
   };
 
-  const openFilePicker = () => {
-    inputRef.current?.click();
-  };
-
-  const openDevices = () => {
-    setError("");
-    setStage("searching");
-    rtcRef.current?.connect();
-
-    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = window.setTimeout(() => {
-      setStage("devices");
-    }, 500);
-  };
-
-  const connect = (peer: PeerInfo) => {
+  const chooseDevice = (peer: PeerInfo) => {
     const file = selectedRef.current[0]?.file;
-    if (!file) {
-      setError("Select a file before choosing a device.");
-      setStage("selected");
-      return;
-    }
-
+    if (!file) return;
     setDevice(peer);
-    setStage("connecting");
-    setProgress(0);
     setError("");
+    setProgress(0);
+    setStage("connecting");
     rtcRef.current?.createTransfer(peer.peer_id, file);
   };
 
@@ -213,8 +138,8 @@ export default function TransferWidget() {
     if (!incoming) return;
     const peer = peersRef.current.find((item) => item.peer_id === incoming.sender_id);
     if (peer) setDevice(peer);
-    setStage("connecting");
     setError("");
+    setStage("connecting");
     rtcRef.current?.acceptTransfer(incoming);
     setIncoming(null);
   };
@@ -226,334 +151,104 @@ export default function TransferWidget() {
     setIncoming(null);
     setProgress(0);
     setError("");
-    setStage("ready");
+    setOnline(false);
+    setMode(null);
+    rtcRef.current?.setMode(null);
+    setStage("role");
   };
 
-  const label =
-    stage === "error"
-      ? "INTERRUPTED"
-      : stage === "complete"
-        ? "COMPLETE"
-        : stage === "transferring"
-          ? "TRANSFERRING"
-          : stage === "connecting"
-            ? "CONNECTING"
-            : stage === "searching"
-              ? "SEARCHING"
-              : stage === "devices"
-                ? "DEVICE FOUND"
-                : stage === "selected"
-                  ? "FILE SELECTED"
-                  : online
-                    ? "READY"
-                    : "OFFLINE";
-
-  const pickerLabel = dragging ? "Release to send" : "Drop files here";
+  const label = stage === "complete" ? "COMPLETE" : stage === "transferring" ? "TRANSFERRING" : stage === "connecting" ? "CONNECTING" : online ? "ONLINE" : "OFFLINE";
 
   return (
-    <div
-      ref={panelRef}
-      className="w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318] transition-shadow duration-300 hover:shadow-[13px_13px_0_#111318]"
-    >
+    <div className="w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318]">
       <div className="flex items-stretch justify-between border-b border-black">
         <div className="px-5 py-4">
-          <p className="font-mono-fluid text-[10px] font-semibold uppercase tracking-[.12em]">
-            Transfer console
-          </p>
-          <p className="mt-1 text-xs text-black/45">Real WebRTC peer connection</p>
+          <p className="font-mono-fluid text-[10px] font-semibold uppercase tracking-[.12em]">Transfer console</p>
+          <p className="mt-1 text-xs text-black/45">Local WebRTC file transfer</p>
         </div>
         <div className="flex items-center border-l border-black px-4 font-mono-fluid text-[9px] uppercase tracking-[.12em]">
-          <span
-            className={`mr-2 h-2 w-2 rounded-full ${stage === "complete" ? "bg-black" : stage === "error" ? "bg-red-500" : online ? "bg-[#9dcc00]" : "bg-black/25"} ${["searching", "connecting", "transferring"].includes(stage) ? "animate-pulse" : ""}`}
-          />
-          {label}
+          <span className={`mr-2 h-2 w-2 rounded-full ${online ? "bg-[#9dcc00]" : "bg-black/25"}`} />{label}
         </div>
       </div>
 
-      {signalingError && (
-        <div className="border-b border-black bg-[#f3f2ed] px-4 py-3">
-          <p className="font-mono-fluid text-[8px] uppercase tracking-[.1em] text-black/50">
-            Signaling offline — file selection is still available
-          </p>
-        </div>
-      )}
-
-      {incoming && (
-        <div className="border-b border-black bg-[#e9ff72] p-4">
-          <p className="font-mono-fluid text-[9px] uppercase tracking-[.12em]">Incoming transfer</p>
-          <p className="mt-2 text-sm font-semibold">
-            {incoming.file_name} · {formatSize(incoming.file_size ?? 0)}
-          </p>
-          <button
-            type="button"
-            onClick={acceptIncoming}
-            className="mt-3 border border-black bg-[#111318] px-4 py-2 font-mono-fluid text-[9px] uppercase text-white"
-          >
-            Accept & receive ↗
-          </button>
-        </div>
-      )}
+      {signalingError && <div className="border-b border-black bg-[#f3f2ed] px-4 py-3 font-mono-fluid text-[8px] uppercase text-black/50">{signalingError}</div>}
 
       <div className="p-5">
-        {(stage === "ready" || stage === "selected") && (
-          <>
-            <input
-              ref={inputRef}
-              id="fluid-file-input"
-              type="file"
-              multiple
-              className="sr-only"
-              onChange={(event) => {
-                if (event.target.files) addFiles(event.target.files);
-                event.currentTarget.value = "";
-              }}
-            />
-
-            <label
-              htmlFor="fluid-file-input"
-              onClick={(event) => {
-                event.preventDefault();
-                openFilePicker();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openFilePicker();
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              onMouseMove={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setPointer({
-                  x: ((event.clientX - rect.left) / rect.width) * 100,
-                  y: ((event.clientY - rect.top) / rect.height) * 100,
-                });
-              }}
-              onMouseLeave={() => setPointer({ x: 50, y: 50 })}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                setDragging(true);
-              }}
-              onDragOver={(event) => event.preventDefault()}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragging(false);
-                addFiles(event.dataTransfer.files);
-              }}
-              className={`relative flex min-h-[285px] w-full cursor-pointer touch-manipulation select-none flex-col items-center justify-center overflow-hidden border-2 text-center transition-all ${dragging ? "border-black bg-[#e9ff72] shadow-[7px_7px_0_#111318]" : "border-black/25 bg-white hover:border-black"}`}
-              style={{
-                backgroundImage: `radial-gradient(circle at ${pointer.x}% ${pointer.y}%, rgba(233,255,114,${dragging ? 0.8 : 0.16}), transparent 32%)`,
-              }}
-            >
-              <span className="absolute left-3 top-3 font-mono-fluid text-[8px] uppercase tracking-[.12em] text-black/30">
-                {dragging ? "DROP / READY" : "INPUT / FILE"}
-              </span>
-              <span className="mb-5 flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]">
-                <FileDown className="h-7 w-7" strokeWidth={1.4} />
-              </span>
-              <span className="text-lg font-semibold tracking-tight">{pickerLabel}</span>
-              <span className="mt-2 font-mono-fluid text-[9px] uppercase tracking-[.1em] text-black/40">
-                or click to browse
-              </span>
-              <span className="absolute bottom-3 left-3 font-mono-fluid text-[8px] uppercase text-black/25">
-                16 KB CHUNKS
-              </span>
-              <span className="absolute bottom-3 right-3 font-mono-fluid text-[8px] uppercase text-black/25">
-                WEBRTC / P2P
-              </span>
-            </label>
-
-            {selected.length > 0 && (
-              <div className="mt-4 border-t border-black/10 pt-3">
-                <div className="flex items-center justify-between border-b border-black/10 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center border border-black/10 bg-white">
-                      {selected[0].file.type.startsWith("image/") ? (
-                        <ImageIcon className="h-4 w-4" />
-                      ) : (
-                        <FileText className="h-4 w-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0 text-left">
-                      <p className="truncate text-xs font-semibold">{selected[0].name}</p>
-                      <p className="font-mono-fluid text-[9px] text-black/40">{selected[0].size}</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={reset}
-                    className="p-2 text-black/30 hover:text-red-600"
-                    aria-label="Remove selected file"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={openDevices}
-                  className="mt-4 w-full border border-black bg-[#111318] px-4 py-3 text-left font-mono-fluid text-[10px] uppercase tracking-[.12em] text-white hover:bg-[#e9ff72] hover:text-black"
-                >
-                  <span>Find nearby devices</span>
-                  <span className="float-right">{peers.length} ONLINE ↗</span>
-                </button>
-              </div>
-            )}
-          </>
+        {stage === "role" && (
+          <div>
+            <p className="font-mono-fluid text-[9px] uppercase tracking-[.12em] text-black/45">01 / Choose transfer role</p>
+            <p className="mt-3 text-2xl font-bold tracking-tight">What do you want to do?</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <button type="button" onClick={() => chooseMode("send")} className="border-2 border-black bg-[#111318] p-5 text-left text-white hover:bg-[#e9ff72] hover:text-black">
+                <FileDown className="h-7 w-7" />
+                <p className="mt-8 text-xl font-bold">SEND</p>
+                <p className="mt-2 font-mono-fluid text-[8px] uppercase text-white/50">Choose a file and wait for receiver</p>
+              </button>
+              <button type="button" onClick={() => chooseMode("receive")} className="border-2 border-black bg-white p-5 text-left hover:bg-[#e9ff72]">
+                <Wifi className="h-7 w-7" />
+                <p className="mt-8 text-xl font-bold">RECEIVE</p>
+                <p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">Become available for an incoming file</p>
+              </button>
+            </div>
+            <p className="mt-5 font-mono-fluid text-[8px] uppercase leading-5 text-black/40">Both devices must choose a role. Sender + receiver = ONLINE.</p>
+          </div>
         )}
 
-        {stage === "searching" && (
-          <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white">
-            <Wifi className="h-8 w-8 animate-pulse" />
-            <p className="mt-7 text-lg font-semibold">Searching nearby</p>
-            <p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">WebSocket peer discovery</p>
+        {stage === "send-file" && (
+          <div>
+            <p className="font-mono-fluid text-[9px] uppercase text-black/45">SEND MODE / ACTIVE</p>
+            <p className="mt-3 text-2xl font-bold">Choose a file.</p>
+            <input ref={inputRef} type="file" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) addFile(e.target.files[0]); e.currentTarget.value = ""; }} />
+            <button type="button" onClick={() => inputRef.current?.click()} className="mt-6 flex min-h-[220px] w-full flex-col items-center justify-center border-2 border-dashed border-black/30 bg-white hover:border-black">
+              <FileText className="h-9 w-9" strokeWidth={1.4} />
+              <span className="mt-5 text-lg font-semibold">Select file</span>
+              <span className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">The receiver must press RECEIVE</span>
+            </button>
+            <button type="button" onClick={reset} className="mt-4 font-mono-fluid text-[9px] uppercase underline">Change role</button>
+          </div>
+        )}
+
+        {stage === "waiting" && (
+          <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white text-center">
+            <Wifi className="h-9 w-9" />
+            <p className="mt-7 text-2xl font-bold">RECEIVE mode active.</p>
+            <p className="mt-2 max-w-xs font-mono-fluid text-[9px] uppercase leading-5 text-black/40">Keep this screen open. When a sender becomes available, this device will show ONLINE.</p>
+            {online && <p className="mt-5 border border-black bg-[#e9ff72] px-4 py-2 font-mono-fluid text-[9px] uppercase">Sender detected · ONLINE</p>}
+            <button type="button" onClick={reset} className="mt-7 font-mono-fluid text-[9px] uppercase underline">Change role</button>
           </div>
         )}
 
         {stage === "devices" && (
           <div className="border border-black bg-white">
-            <div className="flex justify-between border-b border-black px-4 py-3">
-              <span className="font-mono-fluid text-[9px] uppercase">Nearby devices</span>
-              <span className="font-mono-fluid text-[8px] text-black/35">{peers.length} FOUND</span>
-            </div>
-            {peers.length === 0 ? (
-              <div className="p-6 text-center">
-                <p className="text-sm font-semibold">No other browser connected.</p>
-                <p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">
-                  Open Fluid on another device using the laptop LAN address.
-                </p>
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="mt-5 border border-black bg-[#111318] px-4 py-2 font-mono-fluid text-[9px] uppercase text-white"
-                >
-                  Back to file picker
-                </button>
-              </div>
-            ) : (
-              <div className="divide-y divide-black/10">
-                {peers.map((peer) => (
-                  <button
-                    type="button"
-                    key={peer.peer_id}
-                    onClick={() => connect(peer)}
-                    className="group flex w-full items-center gap-3 px-4 py-4 text-left hover:bg-[#e9ff72]"
-                  >
-                    <span className="relative flex h-9 w-9 items-center justify-center border border-black/20 bg-[#f3f2ed]">
-                      <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[#9dcc00]" />
-                      {iconFor(peer.device_type)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-xs font-semibold">{peer.device_name}</span>
-                      <span className="mt-1 block truncate font-mono-fluid text-[8px] uppercase text-black/40">
-                        {peer.browser}
-                      </span>
-                    </span>
-                    <ArrowRight className="h-4 w-4 text-black/30 group-hover:translate-x-1" />
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="flex justify-between border-b border-black px-4 py-3 font-mono-fluid text-[9px] uppercase"><span>Receivers online</span><span>{peers.filter((p) => p.mode === "receive").length} FOUND</span></div>
+            {peers.filter((p) => p.mode === "receive").length === 0 ? (
+              <div className="p-8 text-center"><p className="text-sm font-semibold">Waiting for receiver.</p><p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">Ask the other device to press RECEIVE.</p></div>
+            ) : peers.filter((p) => p.mode === "receive").map((peer) => (
+              <button key={peer.peer_id} type="button" onClick={() => chooseDevice(peer)} className="flex w-full items-center gap-3 border-b border-black/10 px-4 py-4 text-left hover:bg-[#e9ff72]">
+                <span className="flex h-10 w-10 items-center justify-center border border-black/20 bg-[#f3f2ed]">{iconFor(peer.device_type)}</span>
+                <span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{peer.device_name}</span><span className="font-mono-fluid text-[8px] uppercase text-black/40">RECEIVE · ONLINE</span></span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            ))}
           </div>
         )}
 
         {stage === "connecting" && (
-          <div className="min-h-[365px] border border-black bg-white p-5">
-            <div className="font-mono-fluid text-[9px] uppercase text-black/45">SDP / ICE HANDSHAKE</div>
-            <div className="mt-20 flex items-center justify-center gap-6">
-              <div className="flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]">
-                <Monitor className="h-6 w-6" />
-              </div>
-              <div className="h-px w-20 bg-black/15">
-                <div className="h-full w-1/2 animate-pulse bg-black" />
-              </div>
-              <div className="flex h-16 w-16 items-center justify-center border border-black bg-[#e9ff72]">
-                {iconFor(device?.device_type ?? "phone")}
-              </div>
-            </div>
-            <p className="mt-10 text-center text-lg font-semibold">
-              Connecting to {device?.device_name ?? "peer"}
-            </p>
-            <p className="mt-2 text-center font-mono-fluid text-[9px] uppercase text-black/40">
-              Negotiating direct data channel
-            </p>
+          <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white text-center">
+            <div className="flex items-center gap-6"><Monitor className="h-10 w-10" /><div className="h-px w-20 bg-black animate-pulse" />{iconFor(device?.device_type ?? "phone")}</div>
+            {incoming ? <><p className="mt-10 text-xl font-bold">Incoming file request.</p><p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">{incoming.file_name} · {formatSize(incoming.file_size ?? 0)}</p><button type="button" onClick={acceptIncoming} className="mt-6 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">RECEIVE FILE ↗</button></> : <><p className="mt-10 text-xl font-bold">Connecting…</p><p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">Negotiating direct WebRTC channel</p></>}
           </div>
         )}
 
         {stage === "transferring" && (
-          <div className="min-h-[365px] border border-black bg-white p-5">
-            <div className="flex justify-between font-mono-fluid text-[9px] uppercase text-black/45">
-              <span>ACTIVE P2P TRANSFER</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="mt-12 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-              <div>
-                <div className="flex h-12 w-12 items-center justify-center border border-black bg-[#f3f2ed]">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <p className="mt-3 truncate text-xs font-semibold">{selected[0]?.name ?? "Incoming file"}</p>
-              </div>
-              <div ref={packetsRef} className="relative h-16 w-36 overflow-hidden border-y border-black/10">
-                <div className="absolute top-1/2 h-px w-full bg-black/10" />
-                {[0, 1, 2].map((index) => (
-                  <span
-                    key={index}
-                    className="transfer-packet absolute left-1/2 h-1.5 w-8 bg-[#111318]"
-                    style={{ top: `${28 + index * 22}%` }}
-                  />
-                ))}
-              </div>
-              <div className="text-right">
-                <div className="ml-auto flex h-12 w-12 items-center justify-center border border-black bg-[#e9ff72]">
-                  {iconFor(device?.device_type ?? "phone")}
-                </div>
-                <p className="mt-3 truncate text-xs font-semibold">{device?.device_name ?? "Peer"}</p>
-              </div>
-            </div>
-            <div className="mt-10">
-              <div className="h-2 border border-black/15 bg-[#f3f2ed]">
-                <div className="h-full bg-[#111318] transition-[width]" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="mt-3 flex justify-between font-mono-fluid text-[8px] uppercase text-black/40">
-                <span>DIRECT / DATA CHANNEL</span>
-                <span>16 KB CHUNKS</span>
-              </div>
-            </div>
-          </div>
+          <div className="min-h-[365px] border border-black bg-white p-5"><div className="flex justify-between font-mono-fluid text-[9px] uppercase"><span>ACTIVE P2P TRANSFER</span><span>{progress}%</span></div><div className="mt-12 flex items-center justify-between gap-5"><div className="flex h-12 w-12 items-center justify-center border border-black"><FileText className="h-5 w-5" /></div><ArrowRight className="h-6 w-6 animate-pulse" /><div className="flex h-12 w-12 items-center justify-center border border-black bg-[#e9ff72]">{iconFor(device?.device_type ?? "phone")}</div></div><div className="mt-12 h-2 border border-black/20 bg-[#f3f2ed]"><div className="h-full bg-[#111318] transition-[width]" style={{ width: `${progress}%` }} /></div><p className="mt-3 font-mono-fluid text-[8px] uppercase text-black/40">DIRECT / WEBRTC DATA CHANNEL / 16 KB CHUNKS</p></div>
         )}
 
-        {stage === "complete" && (
-          <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-[#e9ff72] text-center">
-            <Check className="h-8 w-8" />
-            <p className="mt-6 text-2xl font-bold">Transfer complete.</p>
-            <p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/50">Directly between peers</p>
-            <button
-              type="button"
-              onClick={reset}
-              className="mt-8 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white"
-            >
-              Send another ↗
-            </button>
-          </div>
-        )}
+        {stage === "complete" && <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-[#e9ff72] text-center"><Check className="h-9 w-9" /><p className="mt-6 text-2xl font-bold">Transfer complete.</p><button type="button" onClick={reset} className="mt-8 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Start another ↗</button></div>}
 
-        {stage === "error" && (
-          <div className="flex min-h-[365px] flex-col items-center justify-center border border-red-500/40 bg-white p-6 text-center">
-            <X className="h-7 w-7 text-red-600" />
-            <p className="mt-6 text-xl font-bold">Connection interrupted.</p>
-            <p className="mt-2 max-w-xs font-mono-fluid text-[9px] leading-5 text-black/40">
-              {error || "The peer connection failed."}
-            </p>
-            <button
-              type="button"
-              onClick={reset}
-              className="mt-7 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white"
-            >
-              Back to file picker ↗
-            </button>
-          </div>
-        )}
+        {stage === "error" && <div className="flex min-h-[365px] flex-col items-center justify-center border border-red-500/40 bg-white p-6 text-center"><X className="h-8 w-8 text-red-600" /><p className="mt-5 text-xl font-bold">Connection interrupted.</p><p className="mt-2 max-w-xs font-mono-fluid text-[9px] leading-5 text-black/40">{error}</p><button type="button" onClick={reset} className="mt-7 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Start again</button></div>}
+
+        {mode && stage !== "role" && stage !== "complete" && stage !== "error" && <div className="mt-4 flex items-center justify-between border-t border-black/10 pt-3 font-mono-fluid text-[8px] uppercase text-black/40"><span>MODE / {mode}</span><span>{online ? "PEER READY" : "WAITING FOR PEER"}</span></div>}
       </div>
     </div>
   );
