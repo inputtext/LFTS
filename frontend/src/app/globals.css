@@ -63,10 +63,34 @@ button {
     touch-action: manipulation;
   }
 
-  /* The desktop GSAP presentation layer must never become the touch layer. */
+  /* On touch devices the transfer console is a dedicated interaction layer.
+     Keep the hero from ever sitting above it in the hit-test stack. */
+  #transfer {
+    position: relative;
+    z-index: 50;
+    isolation: isolate;
+  }
+
+  #transfer > div:first-child {
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+  }
+
   #transfer > div:last-child {
+    position: relative;
+    z-index: 100;
     transform: none !important;
     opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  #transfer button,
+  #transfer input,
+  #transfer a {
+    position: relative;
+    z-index: 101;
+    pointer-events: auto !important;
   }
 
   #transfer,
