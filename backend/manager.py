@@ -51,8 +51,19 @@ class ConnectionManager:
             for session_id in stale:
                 self.sessions.pop(session_id, None)
 
-    def list_peers(self, *, exclude: str | None = None) -> list[Peer]:
-        return [peer for peer in self.peers.values() if peer.peer_id != exclude]
+    async def set_mode(self, peer_id: str, mode: str | None) -> Peer | None:
+        async with self._lock:
+            peer = self.peers.get(peer_id)
+            if peer is not None:
+                peer.mode = mode
+            return peer
+
+    def list_peers(self, *, exclude: str | None = None, mode: str | None = None) -> list[Peer]:
+        return [
+            peer
+            for peer in self.peers.values()
+            if peer.peer_id != exclude and (mode is None or peer.mode == mode)
+        ]
 
     async def send(self, peer_id: str, payload: dict[str, Any]) -> bool:
         peer = self.peers.get(peer_id)
