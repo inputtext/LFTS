@@ -47,6 +47,7 @@ export default function TransferWidget() {
   const rtcRef = useRef<FluidWebRTC | null>(null);
   const selectedRef = useRef<SelectedFile[]>([]);
   const peersRef = useRef<PeerInfo[]>([]);
+  const stageRef = useRef<Stage>("ready");
   const searchTimerRef = useRef<number | null>(null);
 
   const [selected, setSelected] = useState<SelectedFile[]>([]);
@@ -54,12 +55,17 @@ export default function TransferWidget() {
   const [device, setDevice] = useState<PeerInfo | null>(null);
   const [incoming, setIncoming] = useState<TransferMeta | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [stage, setStage] = useState<Stage>("ready");
+  const [stage, setStageState] = useState<Stage>("ready");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [signalingError, setSignalingError] = useState("");
   const [online, setOnline] = useState(false);
   const [pointer, setPointer] = useState({ x: 50, y: 50 });
+
+  const setStage = (next: Stage) => {
+    stageRef.current = next;
+    setStageState(next);
+  };
 
   useEffect(() => {
     const rtc = new FluidWebRTC({
@@ -103,16 +109,13 @@ export default function TransferWidget() {
         setStage("complete");
       },
       error: (message) => {
-        // Signaling failures must never remove the file picker. A user can
-        // still select a file while the WebSocket reconnects.
         if (message.toLowerCase().includes("signaling")) {
           setOnline(false);
           setSignalingError(message);
           return;
         }
 
-        // Peer/data-channel errors are relevant only after a transfer starts.
-        if (["connecting", "transferring"].includes(stage)) {
+        if (["connecting", "transferring"].includes(stageRef.current)) {
           setError(message);
           setStage("error");
         }
@@ -127,7 +130,7 @@ export default function TransferWidget() {
       rtc.close();
       rtcRef.current = null;
     };
-  }, [stage]);
+  }, []);
 
   useEffect(() => {
     if (panelRef.current) {
@@ -148,15 +151,24 @@ export default function TransferWidget() {
     const animation = gsap.fromTo(
       packets,
       { x: -20, opacity: 0 },
-      { x: 125, opacity: 1, duration: 0.85, stagger: 0.16, repeat: -1, ease: "none" },
+      {
+        x: 125,
+        opacity: 1,
+        duration: 0.85,
+        stagger: 0.16,
+        repeat: -1,
+        ease: "none",
+      },
     );
     return () => animation.kill();
   }, [stage]);
 
   const addFiles = (files: FileList | File[]) => {
-    const incomingFiles = Array.from(files)
-      .filter((file) => file.size >= 0)
-      .map((file) => ({ file, name: file.name, size: formatSize(file.size) }));
+    const incomingFiles = Array.from(files).map((file) => ({
+      file,
+      name: file.name,
+      size: formatSize(file.size),
+    }));
 
     if (!incomingFiles.length) return;
 
@@ -300,8 +312,6 @@ export default function TransferWidget() {
             <label
               htmlFor="fluid-file-input"
               onClick={(event) => {
-                // Keep the explicit click fallback for browsers that handle
-                // label activation differently on touch devices.
                 event.preventDefault();
                 openFilePicker();
               }}
@@ -332,7 +342,7 @@ export default function TransferWidget() {
                 setDragging(false);
                 addFiles(event.dataTransfer.files);
               }}
-              className={`relative flex min-h-[285px] w-full cursor-pointer flex-col items-center justify-center overflow-hidden border-2 text-center transition-all ${dragging ? "border-black bg-[#e9ff72] shadow-[7px_7px_0_#111318]" : "border-black/25 bg-white hover:border-black"}`}
+              className={`relative flex min-h-[285px] w-full cursor-pointer touch-manipulation select-none flex-col items-center justify-center overflow-hidden border-2 text-center transition-all ${dragging ? "border-black bg-[#e9ff72] shadow-[7px_7px_0_#111318]" : "border-black/25 bg-white hover:border-black"}`}
               style={{
                 backgroundImage: `radial-gradient(circle at ${pointer.x}% ${pointer.y}%, rgba(233,255,114,${dragging ? 0.8 : 0.16}), transparent 32%)`,
               }}
@@ -397,9 +407,7 @@ export default function TransferWidget() {
           <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white">
             <Wifi className="h-8 w-8 animate-pulse" />
             <p className="mt-7 text-lg font-semibold">Searching nearby</p>
-            <p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">
-              WebSocket peer discovery
-            </p>
+            <p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">WebSocket peer discovery</p>
           </div>
         )}
 
