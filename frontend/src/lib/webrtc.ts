@@ -26,10 +26,6 @@ type Callbacks = {
 };
 
 const createPeerId = () => {
-  // crypto.randomUUID() is unavailable in some mobile browsers when the app
-  // is served over plain HTTP from a LAN IP. Keep LAN development working by
-  // using getRandomValues where available, with a final non-cryptographic
-  // fallback for older browsers.
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     try {
       return crypto.randomUUID();
@@ -51,10 +47,25 @@ const createPeerId = () => {
 };
 
 const signalingUrl = () => {
-  if (process.env.NEXT_PUBLIC_SIGNALING_URL) return process.env.NEXT_PUBLIC_SIGNALING_URL;
-  if (typeof window === "undefined") return "ws://localhost:8000/ws";
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.hostname}:8000/ws`;
+  const configured = process.env.NEXT_PUBLIC_SIGNALING_URL?.trim();
+
+  // A localhost signaling URL is valid on the development machine but points
+  // back to the phone when the same Next.js page is opened over the LAN.
+  // Prefer the page host in that case so every LAN device reaches the laptop.
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const hostname = window.location.hostname;
+    const isLocalPage = hostname === "localhost" || hostname === "127.0.0.1";
+    const configuredIsLocalhost = !!configured && /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(?:\/|$)/i.test(configured);
+
+    if (!configured || (configuredIsLocalhost && !isLocalPage)) {
+      return `${protocol}//${hostname}:8000/ws`;
+    }
+
+    return configured;
+  }
+
+  return configured || "ws://localhost:8000/ws";
 };
 
 export class FluidWebRTC {
