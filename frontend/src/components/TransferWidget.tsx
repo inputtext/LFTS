@@ -26,6 +26,7 @@ export default function TransferWidget() {
   const selectedRef = useRef<SelectedFile[]>([]);
   const peersRef = useRef<PeerInfo[]>([]);
   const stageRef = useRef<Stage>("role");
+  const modeRef = useRef<TransferMode | null>(null);
 
   const [mode, setMode] = useState<TransferMode | null>(null);
   const [selected, setSelected] = useState<SelectedFile[]>([]);
@@ -43,6 +44,15 @@ export default function TransferWidget() {
     setStageState(next);
   };
 
+  const chooseMode = (nextMode: TransferMode) => {
+    modeRef.current = nextMode;
+    setMode(nextMode);
+    setError("");
+    setIncoming(null);
+    rtcRef.current?.setMode(nextMode);
+    setStage(nextMode === "send" ? "send-file" : "waiting");
+  };
+
   useEffect(() => {
     const rtc = new FluidWebRTC({
       peers: (nextPeers) => {
@@ -51,6 +61,7 @@ export default function TransferWidget() {
         setSignalingError("");
       },
       modeSet: (nextMode) => {
+        modeRef.current = nextMode;
         setMode(nextMode);
       },
       incoming: (session) => {
@@ -63,7 +74,7 @@ export default function TransferWidget() {
         setError("");
         setStage("transferring");
         const file = selectedRef.current[0]?.file;
-        if (file && mode === "send") {
+        if (file && modeRef.current === "send") {
           void rtc.sendFile(peerId, file).catch((e: unknown) => {
             setError(e instanceof Error ? e.message : "File transfer failed.");
             setStage("error");
@@ -108,14 +119,6 @@ export default function TransferWidget() {
     setOnline(compatible);
   }, [mode, peers]);
 
-  const chooseMode = (nextMode: TransferMode) => {
-    setMode(nextMode);
-    setError("");
-    setIncoming(null);
-    rtcRef.current?.setMode(nextMode);
-    setStage(nextMode === "send" ? "send-file" : "waiting");
-  };
-
   const addFile = (file: File) => {
     const next = [{ file, name: file.name, size: formatSize(file.size) }];
     selectedRef.current = next;
@@ -152,6 +155,7 @@ export default function TransferWidget() {
     setProgress(0);
     setError("");
     setOnline(false);
+    modeRef.current = null;
     setMode(null);
     rtcRef.current?.setMode(null);
     setStage("role");
@@ -179,12 +183,12 @@ export default function TransferWidget() {
             <p className="font-mono-fluid text-[9px] uppercase tracking-[.12em] text-black/45">01 / Choose transfer role</p>
             <p className="mt-3 text-2xl font-bold tracking-tight">What do you want to do?</p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <button type="button" onClick={() => chooseMode("send")} className="border-2 border-black bg-[#111318] p-5 text-left text-white hover:bg-[#e9ff72] hover:text-black">
+              <button type="button" onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); chooseMode("send"); }} onClick={(e) => e.preventDefault()} className="border-2 border-black bg-[#111318] p-5 text-left text-white hover:bg-[#e9ff72] hover:text-black">
                 <FileDown className="h-7 w-7" />
                 <p className="mt-8 text-xl font-bold">SEND</p>
                 <p className="mt-2 font-mono-fluid text-[8px] uppercase text-white/50">Choose a file and wait for receiver</p>
               </button>
-              <button type="button" onClick={() => chooseMode("receive")} className="border-2 border-black bg-white p-5 text-left hover:bg-[#e9ff72]">
+              <button type="button" onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); chooseMode("receive"); }} onClick={(e) => e.preventDefault()} className="border-2 border-black bg-white p-5 text-left hover:bg-[#e9ff72]">
                 <Wifi className="h-7 w-7" />
                 <p className="mt-8 text-xl font-bold">RECEIVE</p>
                 <p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">Become available for an incoming file</p>
