@@ -8,153 +8,46 @@ import { FluidWebRTC, type PeerInfo, type TransferMeta } from "@/lib/webrtc";
 type SelectedFile = { file: File; name: string; size: string };
 type Stage = "ready" | "selected" | "searching" | "devices" | "connecting" | "transferring" | "complete" | "error";
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function iconFor(type: string) {
-  if (type === "phone") return <Smartphone className="h-4 w-4" strokeWidth={1.5} />;
-  if (type === "tablet") return <Tablet className="h-4 w-4" strokeWidth={1.5} />;
-  return <Monitor className="h-4 w-4" strokeWidth={1.5} />;
-}
+function formatSize(bytes: number) { if (bytes < 1024) return `${bytes} B`; if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`; if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`; return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`; }
+function iconFor(type: string) { if (type === "phone") return <Smartphone className="h-4 w-4" strokeWidth={1.5}/>; if (type === "tablet") return <Tablet className="h-4 w-4" strokeWidth={1.5}/>; return <Monitor className="h-4 w-4" strokeWidth={1.5}/>; }
 
 export default function TransferWidget() {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const packetsRef = useRef<HTMLDivElement>(null);
-  const rtcRef = useRef<FluidWebRTC | null>(null);
-  const [selected, setSelected] = useState<SelectedFile[]>([]);
-  const [peers, setPeers] = useState<PeerInfo[]>([]);
-  const [device, setDevice] = useState<PeerInfo | null>(null);
-  const [incoming, setIncoming] = useState<TransferMeta | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [stage, setStage] = useState<Stage>("ready");
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState("");
-  const [pointer, setPointer] = useState({ x: 50, y: 50 });
+  const inputRef = useRef<HTMLInputElement>(null); const panelRef = useRef<HTMLDivElement>(null); const packetsRef = useRef<HTMLDivElement>(null); const rtcRef = useRef<FluidWebRTC | null>(null); const selectedRef = useRef<SelectedFile[]>([]);
+  const [selected, setSelected] = useState<SelectedFile[]>([]); const [peers, setPeers] = useState<PeerInfo[]>([]); const [device, setDevice] = useState<PeerInfo | null>(null); const [incoming, setIncoming] = useState<TransferMeta | null>(null); const [dragging, setDragging] = useState(false); const [stage, setStage] = useState<Stage>("ready"); const [progress, setProgress] = useState(0); const [error, setError] = useState(""); const [pointer, setPointer] = useState({x:50,y:50});
 
   useEffect(() => {
     const rtc = new FluidWebRTC({
       peers: setPeers,
       incoming: (session) => setIncoming(session),
-      connected: (peerId) => {
-        setStage("transferring");
-        const target = peers.find((peer) => peer.peer_id === peerId);
-        if (target) setDevice(target);
-      },
-      progress: (sent, total) => setProgress(total ? Math.round((sent / total) * 100) : 0),
-      received: (file) => {
-        const url = URL.createObjectURL(file);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = file.name;
-        anchor.click();
-        URL.revokeObjectURL(url);
-        setStage("complete");
-        setProgress(100);
-      },
-      error: (message) => {
-        setError(message);
-        setStage("error");
-      },
+      connected: (peerId) => { setStage("transferring"); const peer = peers.find((p) => p.peer_id === peerId); if (peer) setDevice(peer); const file = selectedRef.current[0]?.file; if (file) void rtc.sendFile(peerId, file).catch((e: unknown) => { setError(e instanceof Error ? e.message : "File transfer failed."); setStage("error"); }); },
+      progress: (sent,total) => setProgress(total ? Math.round((sent/total)*100) : 0),
+      received: (file) => { const url=URL.createObjectURL(file); const a=document.createElement("a"); a.href=url; a.download=file.name; document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(()=>URL.revokeObjectURL(url),1000); setProgress(100); setStage("complete"); },
+      error: (message) => { setError(message); setStage("error"); },
     });
-    rtcRef.current = rtc;
-    rtc.connect();
-    return () => { rtc.close(); rtcRef.current = null; };
+    rtcRef.current=rtc; rtc.connect(); return () => { rtc.close(); rtcRef.current=null; };
   }, []);
 
-  useEffect(() => {
-    if (!panelRef.current) return;
-    gsap.fromTo(panelRef.current, { scale: 0.985, opacity: 0.55 }, { scale: 1, opacity: 1, duration: 0.32, ease: "power2.out" });
-  }, [stage]);
+  useEffect(()=>{ if(panelRef.current) gsap.fromTo(panelRef.current,{scale:.985,opacity:.55},{scale:1,opacity:1,duration:.32,ease:"power2.out"}); },[stage]);
+  useEffect(()=>{ if(stage!=="transferring"||!packetsRef.current)return; const p=gsap.utils.toArray<HTMLElement>(".transfer-packet",packetsRef.current); const t=gsap.fromTo(p,{x:-20,opacity:0},{x:125,opacity:1,duration:.85,stagger:.16,repeat:-1,ease:"none"}); return()=>t.kill(); },[stage]);
 
-  useEffect(() => {
-    if (stage !== "transferring" || !packetsRef.current) return;
-    const packets = gsap.utils.toArray<HTMLElement>(".transfer-packet", packetsRef.current);
-    const tween = gsap.fromTo(packets, { x: -20, opacity: 0 }, { x: 125, opacity: 1, duration: 0.85, stagger: 0.16, repeat: -1, ease: "none" });
-    return () => tween.kill();
-  }, [stage]);
+  const addFiles=(files:FileList|File[])=>{ const incomingFiles=Array.from(files).map(file=>({file,name:file.name,size:formatSize(file.size)})); if(incomingFiles.length){selectedRef.current=incomingFiles.slice(0,5);setSelected(incomingFiles.slice(0,5));setStage("selected");setError("");} };
+  const openDevices=()=>{setError("");setStage("searching");rtcRef.current?.connect();window.setTimeout(()=>setStage("devices"),500);};
+  const connect=(peer:PeerInfo)=>{if(!selectedRef.current[0])return;setDevice(peer);setStage("connecting");setProgress(0);rtcRef.current?.createTransfer(peer.peer_id,selectedRef.current[0].file);};
+  const acceptIncoming=()=>{if(!incoming)return;const peer=peers.find(p=>p.peer_id===incoming.sender_id);if(peer)setDevice(peer);setStage("connecting");rtcRef.current?.acceptTransfer(incoming);setIncoming(null);};
+  const reset=()=>{selectedRef.current=[];setSelected([]);setDevice(null);setIncoming(null);setProgress(0);setError("");setStage("ready");};
+  const label=stage==="error"?"INTERRUPTED":stage==="complete"?"COMPLETE":stage==="transferring"?"TRANSFERRING":stage==="connecting"?"CONNECTING":stage==="searching"?"SEARCHING":stage==="devices"?"DEVICE FOUND":stage==="selected"?"FILE SELECTED":"READY";
 
-  const addFiles = (files: FileList | File[]) => {
-    const incomingFiles = Array.from(files).map((file) => ({ file, name: file.name, size: formatSize(file.size) }));
-    if (incomingFiles.length) { setSelected(incomingFiles.slice(0, 5)); setStage("selected"); setError(""); }
-  };
-
-  const openDevices = () => {
-    setError("");
-    setStage("searching");
-    rtcRef.current?.connect();
-    window.setTimeout(() => setStage("devices"), 500);
-  };
-
-  const connect = (peer: PeerInfo) => {
-    if (!selected[0]) return;
-    setDevice(peer);
-    setStage("connecting");
-    setProgress(0);
-    rtcRef.current?.createTransfer(peer.peer_id, selected[0].file);
-  };
-
-  const acceptIncoming = () => {
-    if (!incoming) return;
-    const peer = peers.find((item) => item.peer_id === incoming.sender_id);
-    if (peer) setDevice(peer);
-    setStage("connecting");
-    rtcRef.current?.acceptTransfer(incoming);
-    setIncoming(null);
-  };
-
-  const reset = () => {
-    setSelected([]); setDevice(null); setIncoming(null); setProgress(0); setError(""); setStage("ready");
-  };
-
-  const label = stage === "error" ? "INTERRUPTED" : stage === "complete" ? "COMPLETE" : stage === "transferring" ? "TRANSFERRING" : stage === "connecting" ? "CONNECTING" : stage === "searching" ? "SEARCHING" : stage === "devices" ? "DEVICE FOUND" : stage === "selected" ? "FILE SELECTED" : "READY";
-
-  return (
-    <div ref={panelRef} className="w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318] transition-shadow duration-300 hover:shadow-[13px_13px_0_#111318]">
-      <div className="flex items-stretch justify-between border-b border-black">
-        <div className="px-5 py-4"><p className="font-mono-fluid text-[10px] font-semibold uppercase tracking-[0.12em]">Transfer console</p><p className="mt-1 text-xs text-black/45">Real WebRTC peer connection</p></div>
-        <div className="flex items-center border-l border-black px-4 font-mono-fluid text-[9px] uppercase tracking-[0.12em]"><span className={`mr-2 h-2 w-2 rounded-full ${stage === "complete" ? "bg-black" : stage === "error" ? "bg-red-500" : "bg-[#9dcc00]"} ${["searching","connecting","transferring"].includes(stage) ? "animate-pulse" : ""}`} /> {label}</div>
-      </div>
-
-      {incoming && (
-        <div className="border-b border-black bg-[#e9ff72] p-4">
-          <p className="font-mono-fluid text-[9px] uppercase tracking-[0.12em]">Incoming transfer</p>
-          <p className="mt-2 text-sm font-semibold">{incoming.file_name} · {formatSize(incoming.file_size ?? 0)}</p>
-          <button onClick={acceptIncoming} className="mt-3 border border-black bg-[#111318] px-4 py-2 font-mono-fluid text-[9px] uppercase tracking-[0.1em] text-white">Accept & receive ↗</button>
-        </div>
-      )}
-
-      <div className="p-5">
-        {(stage === "ready" || stage === "selected") && (
-          <>
-            <input ref={inputRef} type="file" className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
-            <button type="button" onClick={() => inputRef.current?.click()} onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPointer({ x: ((e.clientX-r.left)/r.width)*100, y: ((e.clientY-r.top)/r.height)*100 }); }} onMouseLeave={() => setPointer({x:50,y:50})} onDragEnter={(e) => {e.preventDefault();setDragging(true)}} onDragOver={(e)=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={(e)=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files)}} className={`relative flex min-h-[285px] w-full flex-col items-center justify-center overflow-hidden border-2 text-center transition-all ${dragging ? "border-black bg-[#e9ff72] shadow-[7px_7px_0_#111318]" : "border-black/25 bg-white hover:border-black"}`} style={{backgroundImage:`radial-gradient(circle at ${pointer.x}% ${pointer.y}%, rgba(233,255,114,${dragging?.8:.16}), transparent 32%)`}}>
-              <span className="absolute left-3 top-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/30">{dragging ? "DROP / READY" : "INPUT / FILE"}</span>
-              <span className="mb-5 flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]"><FileDown className="h-7 w-7" strokeWidth={1.4}/></span>
-              <span className="text-lg font-semibold tracking-tight">{dragging ? "Release to send" : "Drop files here"}</span><span className="mt-2 font-mono-fluid text-[9px] uppercase tracking-[0.1em] text-black/40">or click to browse</span>
-              <span className="absolute bottom-3 left-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/25">16 KB CHUNKS</span><span className="absolute bottom-3 right-3 font-mono-fluid text-[8px] uppercase tracking-[0.12em] text-black/25">WEBRTC / P2P</span>
-            </button>
-            {selected.length > 0 && <div className="mt-4 border-t border-black/10 pt-3"><div className="flex items-center justify-between border-b border-black/10 py-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 items-center justify-center border border-black/10 bg-white">{selected[0].file.type.startsWith("image/") ? <ImageIcon className="h-4 w-4"/> : <FileText className="h-4 w-4"/>}</span><div className="min-w-0 text-left"><p className="truncate text-xs font-semibold">{selected[0].name}</p><p className="font-mono-fluid text-[9px] text-black/40">{selected[0].size}</p></div></div><button onClick={()=>reset()} className="p-1 text-black/30 hover:text-red-600"><X className="h-4 w-4"/></button></div><button type="button" onClick={openDevices} className="mt-4 w-full border border-black bg-[#111318] px-4 py-3 text-left font-mono-fluid text-[10px] uppercase tracking-[0.12em] text-white transition hover:bg-[#e9ff72] hover:text-black"><span>Find nearby devices</span><span className="float-right">{peers.length} ONLINE ↗</span></button></div>}
-          </>
-        )}
-
-        {stage === "searching" && <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white"><Wifi className="h-8 w-8 animate-pulse"/><p className="mt-7 text-lg font-semibold">Searching nearby</p><p className="mt-2 font-mono-fluid text-[9px] uppercase tracking-[0.12em] text-black/40">WebSocket peer discovery</p></div>}
-
-        {stage === "devices" && <div className="border border-black bg-white"><div className="flex items-center justify-between border-b border-black px-4 py-3"><span className="font-mono-fluid text-[9px] uppercase tracking-[0.12em]">Nearby devices</span><span className="font-mono-fluid text-[8px] text-black/35">{peers.length} FOUND</span></div>{peers.length === 0 ? <div className="p-6 text-center"><p className="text-sm font-semibold">No other browser connected.</p><p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">Open Fluid on your phone using the laptop LAN address.</p></div> : <div className="divide-y divide-black/10">{peers.map((peer)=><button key={peer.peer_id} onClick={()=>connect(peer)} className="group flex w-full items-center gap-3 px-4 py-4 text-left hover:bg-[#e9ff72]"><span className="relative flex h-9 w-9 items-center justify-center border border-black/20 bg-[#f3f2ed]"><span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[#9dcc00]"/>{iconFor(peer.device_type)}</span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{peer.device_name}</span><span className="mt-1 block truncate font-mono-fluid text-[8px] uppercase tracking-[0.08em] text-black/40">{peer.browser}</span></span><ArrowRight className="h-4 w-4 text-black/30 group-hover:translate-x-1"/></button>)}</div>}</div>}
-
-        {stage === "connecting" && <div className="min-h-[365px] border border-black bg-white p-5"><div className="font-mono-fluid text-[9px] uppercase tracking-[0.12em] text-black/45">SDP / ICE HANDSHAKE</div><div className="mt-20 flex items-center justify-center gap-6"><div className="flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]"><Monitor className="h-6 w-6"/></div><div className="h-px w-20 overflow-hidden bg-black/15"><div className="h-full w-1/2 animate-pulse bg-black"/></div><div className="flex h-16 w-16 items-center justify-center border border-black bg-[#e9ff72]">{iconFor(device?.device_type ?? "phone")}</div></div><p className="mt-10 text-center text-lg font-semibold">Connecting to {device?.device_name ?? "peer"}</p><p className="mt-2 text-center font-mono-fluid text-[9px] uppercase tracking-[0.1em] text-black/40">Negotiating direct data channel</p></div>}
-
-        {stage === "transferring" && <div className="min-h-[365px] border border-black bg-white p-5"><div className="flex justify-between font-mono-fluid text-[9px] uppercase tracking-[0.12em] text-black/45"><span>ACTIVE P2P TRANSFER</span><span>{progress}%</span></div><div className="mt-12 grid grid-cols-[1fr_auto_1fr] items-center gap-4"><div><div className="flex h-12 w-12 items-center justify-center border border-black bg-[#f3f2ed]"><FileText className="h-5 w-5"/></div><p className="mt-3 truncate text-xs font-semibold">{selected[0]?.name ?? "Incoming file"}</p></div><div ref={packetsRef} className="relative h-16 w-36 overflow-hidden border-y border-black/10"><div className="absolute top-1/2 h-px w-full bg-black/10"/>{[0,1,2].map(i=><span key={i} className="transfer-packet absolute left-1/2 h-1.5 w-8 bg-[#111318]" style={{top:`${28+i*22}%`}}/>)}</div><div className="text-right"><div className="ml-auto flex h-12 w-12 items-center justify-center border border-black bg-[#e9ff72]">{iconFor(device?.device_type ?? "phone")}</div><p className="mt-3 truncate text-xs font-semibold">{device?.device_name ?? "Peer"}</p></div></div><div className="mt-10"><div className="h-2 border border-black/15 bg-[#f3f2ed]"><div className="h-full bg-[#111318] transition-[width]" style={{width:`${progress}%`}}/></div><div className="mt-3 flex justify-between font-mono-fluid text-[8px] uppercase tracking-[0.1em] text-black/40"><span>DIRECT / DATA CHANNEL</span><span>16 KB CHUNKS</span></div></div></div>}
-
-        {stage === "complete" && <div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-[#e9ff72] text-center"><Check className="h-8 w-8"/><p className="mt-6 text-2xl font-bold">Transfer complete.</p><p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/50">Directly between peers</p><button onClick={reset} className="mt-8 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Send another ↗</button></div>}
-
-        {stage === "error" && <div className="flex min-h-[365px] flex-col items-center justify-center border border-red-500/40 bg-white p-6 text-center"><X className="h-7 w-7 text-red-600"/><p className="mt-6 text-xl font-bold">Connection interrupted.</p><p className="mt-2 max-w-xs font-mono-fluid text-[9px] leading-5 text-black/40">{error || "The peer connection failed."}</p><button onClick={openDevices} className="mt-7 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Try again ↗</button></div>}
-      </div>
-      <div className="grid grid-cols-3 border-t border-black font-mono-fluid text-[8px] uppercase tracking-[0.1em] text-black/40"><span className="border-r border-black px-4 py-3">No file upload</span><span className="border-r border-black px-4 py-3">WebRTC P2P</span><span className="px-4 py-3">16 KB chunks</span></div>
-    </div>
-  );
+  return <div ref={panelRef} className="w-full max-w-[500px] border border-black bg-[#f8f7f2] shadow-[10px_10px_0_#111318] transition-shadow duration-300 hover:shadow-[13px_13px_0_#111318]">
+    <div className="flex items-stretch justify-between border-b border-black"><div className="px-5 py-4"><p className="font-mono-fluid text-[10px] font-semibold uppercase tracking-[.12em]">Transfer console</p><p className="mt-1 text-xs text-black/45">Real WebRTC peer connection</p></div><div className="flex items-center border-l border-black px-4 font-mono-fluid text-[9px] uppercase tracking-[.12em]"><span className={`mr-2 h-2 w-2 rounded-full ${stage==="complete"?"bg-black":stage==="error"?"bg-red-500":"bg-[#9dcc00]"} ${["searching","connecting","transferring"].includes(stage)?"animate-pulse":""}`}/>{label}</div></div>
+    {incoming&&<div className="border-b border-black bg-[#e9ff72] p-4"><p className="font-mono-fluid text-[9px] uppercase tracking-[.12em]">Incoming transfer</p><p className="mt-2 text-sm font-semibold">{incoming.file_name} · {formatSize(incoming.file_size??0)}</p><button onClick={acceptIncoming} className="mt-3 border border-black bg-[#111318] px-4 py-2 font-mono-fluid text-[9px] uppercase text-white">Accept & receive ↗</button></div>}
+    <div className="p-5">
+      {(stage==="ready"||stage==="selected")&&<><input ref={inputRef} type="file" className="hidden" onChange={e=>{if(e.target.files)addFiles(e.target.files);e.target.value=""}}/><button type="button" onClick={()=>inputRef.current?.click()} onMouseMove={e=>{const r=e.currentTarget.getBoundingClientRect();setPointer({x:((e.clientX-r.left)/r.width)*100,y:((e.clientY-r.top)/r.height)*100})}} onMouseLeave={()=>setPointer({x:50,y:50})} onDragEnter={e=>{e.preventDefault();setDragging(true)}} onDragOver={e=>e.preventDefault()} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files)}} className={`relative flex min-h-[285px] w-full flex-col items-center justify-center overflow-hidden border-2 text-center transition-all ${dragging?"border-black bg-[#e9ff72] shadow-[7px_7px_0_#111318]":"border-black/25 bg-white hover:border-black"}`} style={{backgroundImage:`radial-gradient(circle at ${pointer.x}% ${pointer.y}%, rgba(233,255,114,${dragging?.8:.16}), transparent 32%)`}}><span className="absolute left-3 top-3 font-mono-fluid text-[8px] uppercase tracking-[.12em] text-black/30">{dragging?"DROP / READY":"INPUT / FILE"}</span><span className="mb-5 flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]"><FileDown className="h-7 w-7" strokeWidth={1.4}/></span><span className="text-lg font-semibold tracking-tight">{dragging?"Release to send":"Drop files here"}</span><span className="mt-2 font-mono-fluid text-[9px] uppercase tracking-[.1em] text-black/40">or click to browse</span><span className="absolute bottom-3 left-3 font-mono-fluid text-[8px] uppercase text-black/25">16 KB CHUNKS</span><span className="absolute bottom-3 right-3 font-mono-fluid text-[8px] uppercase text-black/25">WEBRTC / P2P</span></button>{selected.length>0&&<div className="mt-4 border-t border-black/10 pt-3"><div className="flex items-center justify-between border-b border-black/10 py-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 items-center justify-center border border-black/10 bg-white">{selected[0].file.type.startsWith("image/")?<ImageIcon className="h-4 w-4"/>:<FileText className="h-4 w-4"/>}</span><div className="min-w-0 text-left"><p className="truncate text-xs font-semibold">{selected[0].name}</p><p className="font-mono-fluid text-[9px] text-black/40">{selected[0].size}</p></div></div><button onClick={reset} className="p-1 text-black/30 hover:text-red-600"><X className="h-4 w-4"/></button></div><button onClick={openDevices} className="mt-4 w-full border border-black bg-[#111318] px-4 py-3 text-left font-mono-fluid text-[10px] uppercase tracking-[.12em] text-white hover:bg-[#e9ff72] hover:text-black"><span>Find nearby devices</span><span className="float-right">{peers.length} ONLINE ↗</span></button></div>}</>}
+      {stage==="searching"&&<div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-white"><Wifi className="h-8 w-8 animate-pulse"/><p className="mt-7 text-lg font-semibold">Searching nearby</p><p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/40">WebSocket peer discovery</p></div>}
+      {stage==="devices"&&<div className="border border-black bg-white"><div className="flex justify-between border-b border-black px-4 py-3"><span className="font-mono-fluid text-[9px] uppercase">Nearby devices</span><span className="font-mono-fluid text-[8px] text-black/35">{peers.length} FOUND</span></div>{peers.length===0?<div className="p-6 text-center"><p className="text-sm font-semibold">No other browser connected.</p><p className="mt-2 font-mono-fluid text-[8px] uppercase text-black/40">Open Fluid on your phone using the laptop LAN address.</p></div>:<div className="divide-y divide-black/10">{peers.map(peer=><button key={peer.peer_id} onClick={()=>connect(peer)} className="group flex w-full items-center gap-3 px-4 py-4 text-left hover:bg-[#e9ff72]"><span className="relative flex h-9 w-9 items-center justify-center border border-black/20 bg-[#f3f2ed]"><span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-[#9dcc00]"/>{iconFor(peer.device_type)}</span><span className="min-w-0 flex-1"><span className="block text-xs font-semibold">{peer.device_name}</span><span className="mt-1 block truncate font-mono-fluid text-[8px] uppercase text-black/40">{peer.browser}</span></span><ArrowRight className="h-4 w-4 text-black/30 group-hover:translate-x-1"/></button>)}</div>}</div>}
+      {stage==="connecting"&&<div className="min-h-[365px] border border-black bg-white p-5"><div className="font-mono-fluid text-[9px] uppercase text-black/45">SDP / ICE HANDSHAKE</div><div className="mt-20 flex items-center justify-center gap-6"><div className="flex h-16 w-16 items-center justify-center border border-black bg-[#f3f2ed]"><Monitor className="h-6 w-6"/></div><div className="h-px w-20 bg-black/15"><div className="h-full w-1/2 animate-pulse bg-black"/></div><div className="flex h-16 w-16 items-center justify-center border border-black bg-[#e9ff72]">{iconFor(device?.device_type??"phone")}</div></div><p className="mt-10 text-center text-lg font-semibold">Connecting to {device?.device_name??"peer"}</p><p className="mt-2 text-center font-mono-fluid text-[9px] uppercase text-black/40">Negotiating direct data channel</p></div>}
+      {stage==="transferring"&&<div className="min-h-[365px] border border-black bg-white p-5"><div className="flex justify-between font-mono-fluid text-[9px] uppercase text-black/45"><span>ACTIVE P2P TRANSFER</span><span>{progress}%</span></div><div className="mt-12 grid grid-cols-[1fr_auto_1fr] items-center gap-4"><div><div className="flex h-12 w-12 items-center justify-center border border-black bg-[#f3f2ed]"><FileText className="h-5 w-5"/></div><p className="mt-3 truncate text-xs font-semibold">{selected[0]?.name??"Incoming file"}</p></div><div ref={packetsRef} className="relative h-16 w-36 overflow-hidden border-y border-black/10"><div className="absolute top-1/2 h-px w-full bg-black/10"/>{[0,1,2].map(i=><span key={i} className="transfer-packet absolute left-1/2 h-1.5 w-8 bg-[#111318]" style={{top:`${28+i*22}%`}}/>)}</div><div className="text-right"><div className="ml-auto flex h-12 w-12 items-center justify-center border border-black bg-[#e9ff72]">{iconFor(device?.device_type??"phone")}</div><p className="mt-3 truncate text-xs font-semibold">{device?.device_name??"Peer"}</p></div></div><div className="mt-10"><div className="h-2 border border-black/15 bg-[#f3f2ed]"><div className="h-full bg-[#111318] transition-[width]" style={{width:`${progress}%`}}/></div><div className="mt-3 flex justify-between font-mono-fluid text-[8px] uppercase text-black/40"><span>DIRECT / DATA CHANNEL</span><span>16 KB CHUNKS</span></div></div></div>}
+      {stage==="complete"&&<div className="flex min-h-[365px] flex-col items-center justify-center border border-black bg-[#e9ff72] text-center"><Check className="h-8 w-8"/><p className="mt-6 text-2xl font-bold">Transfer complete.</p><p className="mt-2 font-mono-fluid text-[9px] uppercase text-black/50">Directly between peers</p><button onClick={reset} className="mt-8 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Send another ↗</button></div>}
+      {stage==="error"&&<div className="flex min-h-[365px] flex-col items-center justify-center border border-red-500/40 bg-white p-6 text-center"><X className="h-7 w-7 text-red-600"/><p className="mt-6 text-xl font-bold">Connection interrupted.</p><p className="mt-2 max-w-xs font-mono-fluid text-[9px] leading-5 text-black/40">{error||"The peer connection failed."}</p><button onClick={openDevices} className="mt-7 border border-black bg-[#111318] px-5 py-3 font-mono-fluid text-[9px] uppercase text-white">Try again ↗</button></div>}
+    </div><div className="grid grid-cols-3 border-t border-black font-mono-fluid text-[8px] uppercase text-black/40"><span className="border-r border-black px-4 py-3">No file upload</span><span className="border-r border-black px-4 py-3">WebRTC P2P</span><span className="px-4 py-3">16 KB chunks</span></div>
+  </div>;
 }
