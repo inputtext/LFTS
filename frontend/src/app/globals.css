@@ -62,6 +62,17 @@ button {
   a {
     touch-action: manipulation;
   }
+
+  /* The desktop GSAP presentation layer must never become the touch layer. */
+  #transfer > div:last-child {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  #transfer,
+  #transfer * {
+    animation: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
