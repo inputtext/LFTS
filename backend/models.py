@@ -11,6 +11,7 @@ class Peer:
     device_name: str = "Unknown device"
     device_type: str = "unknown"
     browser: str = "Unknown browser"
+    mode: str | None = None
 
 
 @dataclass(slots=True)
