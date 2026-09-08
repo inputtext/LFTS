@@ -25,6 +25,31 @@ type Callbacks = {
   error: (message: string) => void;
 };
 
+const createPeerId = () => {
+  // crypto.randomUUID() is unavailable in some mobile browsers when the app
+  // is served over plain HTTP from a LAN IP. Keep LAN development working by
+  // using getRandomValues where available, with a final non-cryptographic
+  // fallback for older browsers.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fall through for browsers that expose but restrict randomUUID().
+    }
+  }
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  return `peer-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
 const signalingUrl = () => {
   if (process.env.NEXT_PUBLIC_SIGNALING_URL) return process.env.NEXT_PUBLIC_SIGNALING_URL;
   if (typeof window === "undefined") return "ws://localhost:8000/ws";
@@ -34,7 +59,7 @@ const signalingUrl = () => {
 
 export class FluidWebRTC {
   private ws: WebSocket | null = null;
-  private readonly peerId = crypto.randomUUID();
+  private readonly peerId = createPeerId();
   private readonly pcs = new Map<string, RTCPeerConnection>();
   private readonly channels = new Map<string, RTCDataChannel>();
   private readonly callbacks: Callbacks;
@@ -49,8 +74,21 @@ export class FluidWebRTC {
   }
 
   connect() {
-    if (this.ws && this.ws.readyState <= WebSocket.OPEN) return;
-    this.ws = new WebSocket(signalingUrl());
+    if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+      this.callbacks.error("WebSocket is unavailable in this browser.");
+      return;
+    }
+
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) return;
+
+    const url = signalingUrl();
+    try {
+      this.ws = new WebSocket(url);
+    } catch {
+      this.callbacks.error(`Unable to open signaling connection to ${url}.`);
+      return;
+    }
+
     this.ws.onopen = () => {
       this.send({
         type: "hello",
@@ -60,8 +98,14 @@ export class FluidWebRTC {
         browser: navigator.userAgent,
       });
     };
-    this.ws.onmessage = (event) => this.handleSignal(JSON.parse(event.data) as SignalMessage);
-    this.ws.onerror = () => this.callbacks.error("Signaling server is unreachable.");
+    this.ws.onmessage = (event) => {
+      try {
+        void this.handleSignal(JSON.parse(event.data) as SignalMessage);
+      } catch {
+        this.callbacks.error("Invalid signaling message received.");
+      }
+    };
+    this.ws.onerror = () => this.callbacks.error(`Signaling server unreachable at ${url}.`);
     this.ws.onclose = () => {
       this.ws = null;
       for (const pc of this.pcs.values()) pc.close();
